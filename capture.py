@@ -109,7 +109,7 @@ def download_video(session_url: str, output_dir: Path, cookies_path: Path) -> bo
 # ---------------------------------------------------------------------------
 
 def write_metadata(output_dir: Path, url: str, slug: str, slides_meta: dict) -> None:
-    """Write metadata.json for the session."""
+    """Write metadata.json and page.md for the session."""
     metadata_path = output_dir / "metadata.json"
     if metadata_path.exists():
         # Merge with existing
@@ -118,6 +118,7 @@ def write_metadata(output_dir: Path, url: str, slug: str, slides_meta: dict) -> 
         existing.setdefault("url", url)
         existing.setdefault("slug", slug)
         metadata_path.write_text(json.dumps(existing, indent=2))
+        metadata = existing
     else:
         metadata = {
             "url": url,
@@ -127,6 +128,16 @@ def write_metadata(output_dir: Path, url: str, slug: str, slides_meta: dict) -> 
         }
         metadata_path.write_text(json.dumps(metadata, indent=2))
     print(f"  metadata.json written.")
+
+    page_md_path = output_dir / "page.md"
+    if not page_md_path.exists():
+        title = metadata.get("title") or slug
+        abstract = metadata.get("abstract", "")
+        lines = [f"# {title}", "", f"**URL:** {url}", ""]
+        if abstract:
+            lines += ["## Abstract", "", abstract, ""]
+        page_md_path.write_text("\n".join(lines))
+        print(f"  page.md written.")
 
 
 # ---------------------------------------------------------------------------

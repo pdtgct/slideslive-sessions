@@ -97,6 +97,30 @@ def extract_presentation_id_via_ytdlp(session_url: str, cookies: list[dict]) -> 
                 pass
 
 
+def extract_page_info(html: str) -> dict:
+    """Extract title and abstract from a NeurIPS session page."""
+    from html import unescape
+
+    title = ""
+    abstract = ""
+
+    # Title: <h1> or <title>
+    m = re.search(r'<h1[^>]*>(.*?)</h1>', html, re.S)
+    if m:
+        title = unescape(re.sub(r'<[^>]+>', '', m.group(1))).strip()
+    if not title:
+        m = re.search(r'<title>(.*?)</title>', html, re.S)
+        if m:
+            title = unescape(m.group(1)).strip()
+
+    # Abstract: NeurIPS uses a <div> or <p> with class containing "abstract"
+    m = re.search(r'class="[^"]*abstract[^"]*"[^>]*>(.*?)</(?:div|p|section)>', html, re.S)
+    if m:
+        abstract = unescape(re.sub(r'<[^>]+>', '', m.group(1))).strip()
+
+    return {"title": title, "abstract": abstract}
+
+
 def fetch_session_page(url: str, cookies: list[dict]) -> str:
     """Fetch session page HTML using saved auth cookies."""
     cookie_header = "; ".join(f"{c['name']}={c['value']}" for c in cookies)
@@ -202,9 +226,11 @@ def download(
     slides_dir = output_dir / "slides"
 
     # Extract presentation ID if not provided
+    page_info: dict = {}
     if not presentation_id:
         print(f"Fetching session page: {session_url}")
         html = fetch_session_page(session_url, cookies)
+        page_info = extract_page_info(html)
         presentation_id = extract_presentation_id(html)
         if not presentation_id:
             print("  Static HTML regex found nothing — trying yt-dlp extractor...")
@@ -212,7 +238,7 @@ def download(
         if not presentation_id:
             print("  Warning: Could not find SlidesLive presentation ID.")
             print("  Slides will be skipped. Re-run with --presentation-id <id> to download them.")
-            return {"presentation_id": None, "slide_count": 0}
+            return {"presentation_id": None, "slide_count": 0, **page_info}
 
     print(f"Presentation ID: {presentation_id}")
 
@@ -232,4 +258,5 @@ def download(
     return {
         "presentation_id": presentation_id,
         "slide_count": slide_count,
+        **page_info,
     }

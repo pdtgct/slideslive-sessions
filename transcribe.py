@@ -38,14 +38,14 @@ def transcribe(audio_path: Path, transcript_path: Path, model_name: str = "small
         print(f"  transcript.txt already exists, skipping transcription.")
         return transcript_path.read_text()
 
-    import whisper  # type: ignore
+    from faster_whisper import WhisperModel  # type: ignore
 
     print(f"Loading Whisper model '{model_name}'...")
-    model = whisper.load_model(model_name)
+    model = WhisperModel(model_name, device="cpu", compute_type="int8")
 
     print(f"Transcribing {audio_path.name} (this may take a while)...")
-    result = model.transcribe(str(audio_path))
-    text = result["text"]
+    segments, _ = model.transcribe(str(audio_path))
+    text = "".join(segment.text for segment in segments)
 
     transcript_path.write_text(text)
     print(f"  Transcript saved ({len(text)} characters).")

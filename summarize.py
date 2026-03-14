@@ -1,10 +1,14 @@
 """
-summarize.py — Generate structured notes from transcript using Claude API.
+summarize.py — Generate structured notes from transcript using Claude or a local OpenAI-compatible API.
 
 Usage:
     python summarize.py <session-output-dir>
 
-Reads transcript.txt and metadata.json; writes notes.md using Claude.
+Reads transcript.txt and metadata.json; writes notes.md.
+
+Backend selection (checked in order):
+  1. LOCAL_OPENAI_API is set → use that OpenAI-compatible endpoint (LOCAL_OPENAI_MODEL)
+  2. Otherwise → use Anthropic Claude (ANTHROPIC_API_KEY required)
 """
 
 import argparse
@@ -13,6 +17,8 @@ from pathlib import Path
 
 import anthropic
 from dotenv import load_dotenv
+
+ANTHROPIC_MODEL = "claude-opus-4-6"
 
 SYSTEM_PROMPT = """You are an expert ML researcher creating structured notes from NeurIPS conference sessions.
 Your notes should be precise, technical, and useful for a researcher who wants to understand the key contributions
@@ -90,26 +96,53 @@ def generate_notes(output_dir: Path) -> str:
         transcript=transcript,
     )
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise ValueError("ANTHROPIC_API_KEY environment variable is not set.")
-
-    client = anthropic.Anthropic(api_key=api_key)
-
-    print("Generating notes with Claude (streaming)...")
+    local_api = os.environ.get("LOCAL_OPENAI_API")
     notes_text = ""
-    with client.messages.stream(
-        model="claude-opus-4-6",
-        max_tokens=8192,
-        thinking={"type": "adaptive"},
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": prompt}],
-    ) as stream:
-        for text in stream.text_stream:
+
+    if local_api:
+        from openai import OpenAI
+
+        local_model = os.environ.get("LOCAL_OPENAI_MODEL", "openai/gpt-oss-20b")
+        client = OpenAI(base_url=local_api, api_key="local")
+
+        print(f"Generating notes with {local_model} via {local_api} (streaming)...")
+        stream = client.chat.completions.create(
+            model=local_model,
+            max_tokens=8192,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+            stream=True,
+        )
+        for chunk in stream:
+            text = chunk.choices[0].delta.content or ""
             print(text, end="", flush=True)
             notes_text += text
+    else:
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise ValueError(
+                "Set ANTHROPIC_API_KEY for Claude, or LOCAL_OPENAI_API for a local model."
+            )
+
+        client = anthropic.Anthropic(api_key=api_key)
+
+        print(f"Generating notes with {ANTHROPIC_MODEL} (streaming)...")
+        with client.messages.stream(
+            model=ANTHROPIC_MODEL,
+            max_tokens=8192,
+            thinking={"type": "adaptive"},
+            system=SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": prompt}],
+        ) as stream:
+            for text in stream.text_stream:
+                print(text, end="", flush=True)
+                notes_text += text
 
     print()  # newline after streaming output
+    if not notes_text.strip():
+        raise RuntimeError("Generation returned empty output — notes.md not written.")
     notes_path.write_text(notes_text)
     print(f"  Notes saved to notes.md ({len(notes_text)} characters).")
     return notes_text
