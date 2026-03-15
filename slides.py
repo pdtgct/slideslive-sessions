@@ -332,30 +332,28 @@ def download_slides_playwright(
             browser.close()
             return 0
 
-        # Read total slide count
-        try:
-            count_text = frame.inner_text("[data-slp-target='slideCount']")
-            total = int(count_text.strip())
-        except Exception:
-            total = None
-        print(f"  Player reports {total} slides." if total else "  Could not read slide count.")
-
         # Click through all slides via keyboard shortcut (Shift+→)
-        # Initial focus
+        # Focus the player so keyboard events are received
         frame.locator(player_root_sel).focus()
 
-        # Read slide count now that the player is active
-        if total is None:
+        # Read total slide count — element may contain "49" or "/ 49" or "1 / 49"
+        total = None
+        for _ in range(3):
             try:
                 count_text = frame.inner_text("[data-slp-target='slideCount']")
-                total = int(count_text.strip())
-                print(f"  Player reports {total} slides.")
+                nums = re.findall(r'\d+', count_text)
+                if nums:
+                    total = int(nums[-1])
+                    break
             except Exception:
                 pass
+            frame.wait_for_timeout(500)
+        print(f"  Player reports {total} slides." if total else "  Could not read slide count.")
 
         seen: set[str] = set()
+        first_src: str | None = None
 
-        for i in range(total or 500):
+        for i in range(total or 1000):
             # Get current slide src
             try:
                 src = frame.get_attribute(slide_img_sel, "src") or ""
@@ -364,11 +362,17 @@ def download_slides_playwright(
 
             # Strip query params for dedup, but keep full URL for download
             src_clean = src.split("?")[0]
-            if src_clean and src_clean not in seen:
+
+            if src_clean:
+                if src_clean in seen:
+                    # We've cycled back to a previously seen slide — all slides collected
+                    break
                 seen.add(src_clean)
                 slide_urls.append(src)
+                if first_src is None:
+                    first_src = src_clean
 
-            print(f"  Collecting slide {i + 1}/{total or '?'}    ", end="\r")
+            print(f"  Collecting slide {len(seen)}/{total or '?'}    ", end="\r")
 
             # Stop if we've reached the total
             if total and len(seen) >= total:
@@ -388,7 +392,7 @@ def download_slides_playwright(
                     timeout=5_000,
                 )
             except PWTimeout:
-                # Neither happened — we're at the last slide
+                # Neither happened — we're at the last slide (no cycling)
                 break
 
             # If img disappeared (video-type slide), keep pressing → to skip past it
