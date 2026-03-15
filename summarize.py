@@ -1,77 +1,108 @@
 """
-summarize.py — Generate structured notes from transcript using Claude or a local OpenAI-compatible API.
+summarize.py — Generate structured notes from transcript using any litellm-supported LLM.
 
 Usage:
-    python summarize.py <session-output-dir>
+    python summarize.py <session-output-dir> [--force]
 
 Reads transcript.txt and metadata.json; writes notes.md.
 
-Backend selection (checked in order):
-  1. LOCAL_OPENAI_API is set → use that OpenAI-compatible endpoint (LOCAL_OPENAI_MODEL)
-  2. Otherwise → use Anthropic Claude (ANTHROPIC_API_KEY required)
+Model selection via env vars:
+  NOTES_MODEL    — litellm model string (default: anthropic/claude-opus-4-6)
+  NOTES_API_BASE — optional custom API base URL (e.g. for Ollama or local endpoints)
 """
 
 import argparse
 import os
 from pathlib import Path
 
-import anthropic
+import litellm
 from dotenv import load_dotenv
 
-ANTHROPIC_MODEL = "claude-opus-4-6"
+DEFAULT_NOTES_MODEL = "anthropic/claude-opus-4-6"
 
 SYSTEM_PROMPT = """You are an expert ML researcher creating structured notes from NeurIPS conference sessions.
-Your notes should be precise, technical, and useful for a researcher who wants to understand the key contributions
-without watching the full session. Use LaTeX notation for math where appropriate."""
+
+Your notes should be precise, technical, and useful for a researcher who wants to understand the key contributions, mechanisms, assumptions, and limitations without watching the full session.
+
+Your job is to reconstruct the talk the way a careful reader would understand it from the slides, not to produce a chronological recap of the raw speech.
+
+Guidelines:
+1. Identify the speaker’s central thesis, question, or research program.
+2. Recover the major conceptual sections of the talk in the order the ideas are developed.
+3. For each section, capture:
+   - the main claim,
+   - the mechanism, model, derivation, or argument used to support it,
+   - the significance of the result,
+   - and any important assumptions, simplifying conditions, or caveats.
+4. Preserve the progression from simpler ideas or surrogate models to more complex ones when that progression is part of the talk’s logic.
+5. Distinguish clearly between:
+   - core results or claims,
+   - illustrative examples or intuitions,
+   - assumptions or approximations,
+   - and open questions, limitations, or future directions.
+6. Ignore greetings, applause, housekeeping, repeated filler, and audience Q&A unless a question reveals a major limitation, clarification, or future direction.
+7. Do not invent content that is not supported by the transcript.
+8. Prefer precise technical language over generic prose.
+9. Use LaTeX notation for math where appropriate.
+10. Be comprehensive about important concepts; do not omit substantive ideas merely to keep the notes short.
+
+When the talk introduces a sequence of models, abstractions, or theoretical reductions, preserve that structure explicitly in the notes."""
 
 NOTES_PROMPT_TEMPLATE = """Please create structured notes for the following NeurIPS session.
 
-**Session Title:** {title}
-**Session URL:** {url}
-**Slide Count:** {slide_count}
+Session metadata:
+- Session Title: {title}
+- Session URL: {url}
+- Slide Count: {slide_count}
 
-**Transcript:**
+Transcript:
 {transcript}
 
----
+Instructions for this session:
+- Use the transcript to recover the conceptual organization of the talk as it would be understood from the slides.
+- Focus on the technical ideas, theoretical framing, mechanisms, and conclusions.
+- Preserve the order in which the key ideas are developed.
+- Capture the important concepts completely, even if the notes become long.
+- Do not produce a raw chronological recap of the spoken transcript.
 
-Generate comprehensive notes in Markdown with the following sections:
+Output format:
+1. Title
+2. Executive Summary
+   - 1 to 3 paragraphs summarizing the overall thesis and contribution of the talk
+3. Main Argument
+   - a concise statement of the central question, thesis, or research agenda
+4. Structured Notes by Section
+   - organize the talk into major conceptual sections
+   - for each section include:
+     - Section Heading
+     - Main Claim
+     - Technical Content
+     - Why It Matters
+     - Assumptions / Caveats (if any)
+5. Key Technical Insights
+   - bullet list of the most important results, mechanisms, reductions, or interpretations
+6. Assumptions, Limitations, and Open Questions
+7. One-Sentence Essence
 
-## Abstract
-(2-3 sentence summary of what the paper/talk is about)
-
-## Problem Statement
-(What problem does this work address? Why is it hard/important?)
-
-## Key Contributions
-(Bulleted list of the main technical contributions)
-
-## Method / Approach
-(Detailed description of the proposed method, with any key equations or algorithms)
-
-## Experimental Results
-(What datasets, baselines, and metrics? What are the main results?)
-
-## Limitations & Future Work
-(Acknowledged limitations and open questions)
-
-## Questions Raised
-(Interesting questions or critiques that arise from this work)
-
-## Key Terms
-(Brief glossary of important technical terms introduced or used)
+Important:
+- Ground everything in the transcript.
+- Ignore filler and logistics.
+- Include mathematical notation when it clarifies the content.
+- Prefer faithful technical reconstruction over brevity.
 """
 
 
-def generate_notes(output_dir: Path) -> str:
-    """Generate structured notes from transcript and metadata using Claude."""
+def generate_notes(output_dir: Path, force: bool = False) -> str:
+    """Generate structured notes from transcript and metadata using litellm."""
     transcript_path = output_dir / "transcript.txt"
     notes_path = output_dir / "notes.md"
     metadata_path = output_dir / "metadata.json"
 
     if notes_path.exists():
-        print(f"  notes.md already exists, skipping.")
-        return notes_path.read_text()
+        if not force:
+            print(f"  notes.md already exists, skipping.")
+            return notes_path.read_text()
+        notes_path.unlink()
 
     if not transcript_path.exists():
         raise FileNotFoundError(f"No transcript.txt found in {output_dir}")
@@ -96,49 +127,27 @@ def generate_notes(output_dir: Path) -> str:
         transcript=transcript,
     )
 
-    local_api = os.environ.get("LOCAL_OPENAI_API")
+    notes_model = os.environ.get("NOTES_MODEL", DEFAULT_NOTES_MODEL)
+    notes_api_base = os.environ.get("NOTES_API_BASE")
     notes_text = ""
 
-    if local_api:
-        from openai import OpenAI
+    kwargs = {
+        "model": notes_model,
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ],
+        "stream": True,
+        "max_tokens": 8192,
+    }
+    if notes_api_base:
+        kwargs["api_base"] = notes_api_base
 
-        local_model = os.environ.get("LOCAL_OPENAI_MODEL", "openai/gpt-oss-20b")
-        client = OpenAI(base_url=local_api, api_key="local")
-
-        print(f"Generating notes with {local_model} via {local_api} (streaming)...")
-        stream = client.chat.completions.create(
-            model=local_model,
-            max_tokens=8192,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": prompt},
-            ],
-            stream=True,
-        )
-        for chunk in stream:
-            text = chunk.choices[0].delta.content or ""
-            print(text, end="", flush=True)
-            notes_text += text
-    else:
-        api_key = os.environ.get("ANTHROPIC_API_KEY")
-        if not api_key:
-            raise ValueError(
-                "Set ANTHROPIC_API_KEY for Claude, or LOCAL_OPENAI_API for a local model."
-            )
-
-        client = anthropic.Anthropic(api_key=api_key)
-
-        print(f"Generating notes with {ANTHROPIC_MODEL} (streaming)...")
-        with client.messages.stream(
-            model=ANTHROPIC_MODEL,
-            max_tokens=8192,
-            thinking={"type": "adaptive"},
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": prompt}],
-        ) as stream:
-            for text in stream.text_stream:
-                print(text, end="", flush=True)
-                notes_text += text
+    print(f"Generating notes with {notes_model} (streaming)...")
+    for chunk in litellm.completion(**kwargs):
+        text = chunk.choices[0].delta.content or ""
+        print(text, end="", flush=True)
+        notes_text += text
 
     print()  # newline after streaming output
     if not notes_text.strip():
@@ -151,11 +160,16 @@ def generate_notes(output_dir: Path) -> str:
 def main() -> None:
     load_dotenv()
 
-    parser = argparse.ArgumentParser(description="Generate session notes with Claude.")
+    parser = argparse.ArgumentParser(description="Generate session notes using any litellm-supported model.")
     parser.add_argument("output_dir", help="Session output directory")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Regenerate notes even if notes.md already exists",
+    )
     args = parser.parse_args()
 
-    generate_notes(Path(args.output_dir))
+    generate_notes(Path(args.output_dir), force=args.force)
 
 
 if __name__ == "__main__":

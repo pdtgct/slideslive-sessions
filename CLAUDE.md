@@ -86,6 +86,10 @@ output/{session-slug}/
   notes.md            # Claude-generated structured notes
 ```
 
+## Debugging / Bug Fixes
+
+After making bug fixes, re-read the surrounding logic to check for related issues (e.g., falsy value handling, off-by-one errors) before presenting the fix as complete.
+
 ## Key Technical Notes
 
 - SlidesLive slides are individual JPEGs from CloudFront CDN (not PDFs)
