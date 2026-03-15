@@ -2,7 +2,7 @@
 summarize.py — Generate structured notes from transcript using any litellm-supported LLM.
 
 Usage:
-    python summarize.py <session-output-dir> [--force]
+    slideslive-summarize <session-output-dir> [--force]
 
 Reads transcript.txt and metadata.json; writes notes.md.
 
@@ -27,14 +27,14 @@ Your notes should be precise, technical, and useful for a researcher who wants t
 Your job is to reconstruct the talk the way a careful reader would understand it from the slides, not to produce a chronological recap of the raw speech.
 
 Guidelines:
-1. Identify the speaker’s central thesis, question, or research program.
+1. Identify the speaker's central thesis, question, or research program.
 2. Recover the major conceptual sections of the talk in the order the ideas are developed.
 3. For each section, capture:
    - the main claim,
    - the mechanism, model, derivation, or argument used to support it,
    - the significance of the result,
    - and any important assumptions, simplifying conditions, or caveats.
-4. Preserve the progression from simpler ideas or surrogate models to more complex ones when that progression is part of the talk’s logic.
+4. Preserve the progression from simpler ideas or surrogate models to more complex ones when that progression is part of the talk's logic.
 5. Distinguish clearly between:
    - core results or claims,
    - illustrative examples or intuitions,

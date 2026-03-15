@@ -31,28 +31,28 @@ cp .env.example .env
 
 ### First-time login
 ```bash
-python auth.py                     # opens browser, saves cookies.json
+slideslive-auth                     # opens browser, saves cookies.json
 ```
 
 ### Capture a session
 ```bash
-python capture.py https://neurips.cc/virtual/2025/poster/12345
+slideslive-capture https://neurips.cc/virtual/2025/poster/12345
 ```
 
 ### Options
 ```bash
-python capture.py --no-video <url>           # slides + notes only (no video/transcript)
-python capture.py --no-notes <url>           # skip Claude notes generation
-python capture.py --whisper-model base <url> # use faster/smaller Whisper model
-python capture.py --cookies path/to/cookies.json <url>
-python capture.py <url1> <url2> <url3>       # batch multiple sessions
+slideslive-capture --no-video <url>           # slides + notes only (no video/transcript)
+slideslive-capture --no-notes <url>           # skip Claude notes generation
+slideslive-capture --whisper-model base <url> # use faster/smaller Whisper model
+slideslive-capture --cookies path/to/cookies.json <url>
+slideslive-capture <url1> <url2> <url3>       # batch multiple sessions
 ```
 
 ### Run individual steps
 ```bash
-python auth.py                         # login only
-python transcribe.py output/session-X/ # re-transcribe with different model
-python summarize.py output/session-X/  # re-generate notes
+slideslive-auth                              # login only
+slideslive-transcribe output/session-X/      # re-transcribe with different model
+slideslive-summarize output/session-X/       # re-generate notes
 ```
 
 ## Configuration
@@ -66,11 +66,11 @@ python summarize.py output/session-X/  # re-generate notes
 ## Architecture
 
 ```
-capture.py      — main CLI orchestrator
-auth.py         — Playwright browser login + cookie management
-slides.py       — SlidesLive slide JPEG + sync XML download
-transcribe.py   — ffmpeg audio extraction + Whisper transcription
-summarize.py    — Claude API notes generation
+src/slideslive_sessions/capture.py      — main CLI orchestrator
+src/slideslive_sessions/auth.py         — Playwright browser login + cookie management
+src/slideslive_sessions/slides.py       — SlidesLive slide JPEG + sync XML download
+src/slideslive_sessions/transcribe.py   — ffmpeg audio extraction + Whisper transcription
+src/slideslive_sessions/summarize.py    — Claude API notes generation
 ```
 
 ### Output structure per session
@@ -94,5 +94,5 @@ After making bug fixes, re-read the surrounding logic to check for related issue
 
 - SlidesLive slides are individual JPEGs from CloudFront CDN (not PDFs)
 - NeurIPS uses both SlidesLive and VideoKen players; yt-dlp handles both
-- Re-running `capture.py` on the same URL is idempotent (skips existing files)
+- Re-running `slideslive-capture` on the same URL is idempotent (skips existing files)
 - `cookies.json` and `.env` are gitignored — never commit credentials

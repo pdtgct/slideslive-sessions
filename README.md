@@ -55,7 +55,6 @@ cp .env.example .env
 
 ```bash
 uv run slideslive-auth
-# or: uv run python auth.py
 ```
 
 This opens a browser window. Log in manually; cookies are saved to `cookies.json`.
@@ -64,7 +63,6 @@ This opens a browser window. Log in manually; cookies are saved to `cookies.json
 
 ```bash
 uv run slideslive-capture https://neurips.cc/virtual/2025/poster/12345
-# or: uv run python capture.py https://neurips.cc/virtual/2025/poster/12345
 ```
 
 ### All flags
@@ -156,7 +154,7 @@ output/{session-slug}/
   notes.md            # AI-generated structured notes
 ```
 
-Re-running `capture.py` on the same URL is **idempotent** — existing files are skipped unless `--recreate-notes` is passed.
+Re-running `slideslive-capture` on the same URL is **idempotent** — existing files are skipped unless `--recreate-notes` is passed.
 
 ---
 
