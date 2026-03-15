@@ -32,17 +32,17 @@ Repository = "https://github.com/pdtgct/slideslive-sessions"
 Issues = "https://github.com/pdtgct/slideslive-sessions/issues"
 
 [project.scripts]
-slideslive-capture = "capture:main"
-slideslive-auth = "auth:main"
-slideslive-transcribe = "transcribe:main"
-slideslive-summarize = "summarize:main"
+slideslive-capture = "slideslive_sessions.capture:main"
+slideslive-auth = "slideslive_sessions.auth:main"
+slideslive-transcribe = "slideslive_sessions.transcribe:main"
+slideslive-summarize = "slideslive_sessions.summarize:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-include = ["*.py"]
+packages = ["src/slideslive_sessions"]
 
 [tool.ruff]
 line-length = 100

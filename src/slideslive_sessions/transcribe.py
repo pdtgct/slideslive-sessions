@@ -2,7 +2,7 @@
 transcribe.py — Extract audio from video and transcribe with Whisper.
 
 Usage:
-    python transcribe.py <session-output-dir> [--model small]
+    slideslive-transcribe <session-output-dir> [--model small]
 
 Expects video.mp4 in the output dir; writes audio.mp3 and transcript.txt.
 """

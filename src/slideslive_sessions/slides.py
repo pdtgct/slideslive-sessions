@@ -48,7 +48,7 @@ def extract_presentation_id_via_ytdlp(session_url: str, cookies: list[dict]) -> 
 
     # Write a temporary netscape cookies file for yt-dlp
     import tempfile
-    from auth import cookies_as_netscape
+    from .auth import cookies_as_netscape
 
     cookiefile = None
     tmp = None

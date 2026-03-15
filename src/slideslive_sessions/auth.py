@@ -2,7 +2,7 @@
 auth.py — Browser-based login for neurips.cc via Playwright.
 
 Usage:
-    python auth.py [--cookies cookies.json]
+    slideslive-auth [--cookies cookies.json]
 
 Opens a headed browser window so the user can complete SSO/Google login
 manually, then saves the resulting cookies to cookies.json for reuse.
@@ -54,7 +54,7 @@ def load_cookies(cookies_path: Path) -> list[dict]:
     if not cookies_path.exists():
         raise FileNotFoundError(
             f"No cookies file found at {cookies_path}. "
-            "Run `python auth.py` first to log in."
+            "Run `slideslive-auth` first to log in."
         )
     return json.loads(cookies_path.read_text())
 

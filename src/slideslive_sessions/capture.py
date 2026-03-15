@@ -2,8 +2,8 @@
 capture.py — Main CLI orchestrator for NeurIPS session capture.
 
 Usage:
-    python capture.py <neurips-session-url> [<url2> ...]
-    python capture.py --help
+    slideslive-capture <neurips-session-url> [<url2> ...]
+    slideslive-capture --help
 
 For each URL, runs the full pipeline:
   1. Download slides (JPEG) + sync XML
@@ -65,7 +65,7 @@ def download_video(session_url: str, output_dir: Path, cookies_path: Path) -> bo
 
     netscape_cookies = output_dir / ".cookies.txt"
     if cookies_path.exists():
-        from auth import load_cookies, cookies_as_netscape
+        from .auth import load_cookies, cookies_as_netscape
         cookies = load_cookies(cookies_path)
         cookies_as_netscape(cookies, netscape_cookies)
         cookiefile = str(netscape_cookies)
@@ -166,17 +166,17 @@ def capture_session(
     # Step 1: Load cookies
     cookies = []
     if cookies_path.exists():
-        from auth import load_cookies
+        from .auth import load_cookies
         cookies = load_cookies(cookies_path)
     else:
         print(
             f"Warning: No cookies file found at {cookies_path}. "
-            "Some content may be inaccessible. Run `python auth.py` to log in."
+            "Some content may be inaccessible. Run `slideslive-auth` to log in."
         )
 
     # Step 2: Download slides + metadata
     print("\n[1/4] Downloading slides...")
-    import slides as slides_module
+    from . import slides as slides_module
     slides_meta = slides_module.download(
         session_url=url,
         output_dir=output_dir,
@@ -202,7 +202,7 @@ def capture_session(
     video_path = output_dir / "video.mp4"
     if video_path.exists():
         print("\n[3/4] Transcribing audio...")
-        import transcribe as transcribe_module
+        from . import transcribe as transcribe_module
         transcribe_module.run(output_dir, model_name=whisper_model)
     else:
         print("\n[3/4] No video.mp4 found — skipping transcription.")
@@ -211,7 +211,7 @@ def capture_session(
     transcript_path = output_dir / "transcript.txt"
     if not skip_notes and transcript_path.exists():
         print("\n[4/4] Generating notes...")
-        import summarize as summarize_module
+        from . import summarize as summarize_module
         summarize_module.generate_notes(output_dir, force=recreate_notes)
     elif skip_notes:
         print("\n[4/4] Notes generation skipped (--no-notes).")
@@ -241,13 +241,13 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python capture.py https://neurips.cc/virtual/2025/poster/12345
-  python capture.py --no-video https://neurips.cc/virtual/2025/poster/12345
-  python capture.py --cookies my_cookies.json <url1> <url2>
+  slideslive-capture https://neurips.cc/virtual/2025/poster/12345
+  slideslive-capture --no-video https://neurips.cc/virtual/2025/poster/12345
+  slideslive-capture --cookies my_cookies.json <url1> <url2>
 
 First run:
-  python auth.py        # log in to neurips.cc, saves cookies.json
-  python capture.py <url>
+  slideslive-auth        # log in to neurips.cc, saves cookies.json
+  slideslive-capture <url>
 """,
     )
     parser.add_argument("urls", nargs="+", help="neurips.cc session URLs")
@@ -299,7 +299,7 @@ First run:
 
     if not cookies_path.exists():
         print(f"Note: No cookies file at {cookies_path}.")
-        print("Run `python auth.py` first if the session requires login.")
+        print("Run `slideslive-auth` first if the session requires login.")
 
     for url in args.urls:
         try:
