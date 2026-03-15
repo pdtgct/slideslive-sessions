@@ -1,14 +1,14 @@
 [project]
-name = "neurips-sessions"
+name = "slideslive-sessions"
 version = "0.1.0"
-description = "Capture slides, video, and AI-generated notes from NeurIPS sessions"
+description = "Capture slides, video, and AI-generated notes from ML conference sessions using SlidesLive"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.11"
 authors = [
     { name = "Pete" },
 ]
-keywords = ["neurips", "machine-learning", "conference", "slides", "transcription", "notes"]
+keywords = ["slideslive", "neurips", "iclr", "icml", "machine-learning", "conference", "slides", "transcription", "notes"]
 classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -28,14 +28,14 @@ dependencies = [
 ]
 
 [project.urls]
-Repository = "https://github.com/pdtgct/neurips-sessions"
-Issues = "https://github.com/pdtgct/neurips-sessions/issues"
+Repository = "https://github.com/pdtgct/slideslive-sessions"
+Issues = "https://github.com/pdtgct/slideslive-sessions/issues"
 
 [project.scripts]
-neurips-capture = "capture:main"
-neurips-auth = "auth:main"
-neurips-transcribe = "transcribe:main"
-neurips-summarize = "summarize:main"
+slideslive-capture = "capture:main"
+slideslive-auth = "auth:main"
+slideslive-transcribe = "transcribe:main"
+slideslive-summarize = "summarize:main"
 
 [build-system]
 requires = ["hatchling"]

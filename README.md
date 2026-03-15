@@ -1,11 +1,18 @@
-# neurips-sessions
+# slideslive-sessions
 
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 
-A CLI tool for capturing NeurIPS session data — slides (JPEG), video (MP4), audio transcripts (Whisper), and AI-generated structured notes — into a local, searchable archive.
+A CLI tool for capturing ML conference session data — slides (JPEG), video (MP4), audio transcripts (Whisper), and AI-generated structured notes — into a local, searchable archive.
 
 Built for ML researchers who want to review talks at their own pace without re-watching hours of video.
+
+## Conference compatibility
+
+Tested with **[NeurIPS](https://neurips.cc/Conferences/2025/Dates)**. The tool targets the SlidesLive player, so it may also work with other conferences that use SlidesLive for their virtual presentation platform — but these have **not been tested**:
+
+- [ICLR](https://iclr.cc/templates/VirtualConferenceAuthorInstructions)
+- [ICML](https://icml.cc/Conferences/2026/CallForWorkshops)
 
 ---
 
@@ -15,7 +22,7 @@ Built for ML researchers who want to review talks at their own pace without re-w
 - **ffmpeg** (required for audio extraction)
   - macOS: `brew install ffmpeg`
   - Ubuntu/Debian: `sudo apt install ffmpeg`
-- A **NeurIPS account** (for sessions behind login)
+- A **conference account** (for sessions behind login)
 - An **API key** for your chosen LLM provider (e.g. `ANTHROPIC_API_KEY`)
 
 ---
@@ -24,8 +31,8 @@ Built for ML researchers who want to review talks at their own pace without re-w
 
 ```bash
 # Clone the repo
-git clone https://github.com/pdtgct/neurips-sessions.git
-cd neurips-sessions
+git clone https://github.com/pdtgct/slideslive-sessions.git
+cd slideslive-sessions
 
 # Install the package and dependencies (uv creates the venv automatically)
 uv sync
@@ -44,10 +51,10 @@ cp .env.example .env
 
 ## Usage
 
-### 1. Log in to NeurIPS
+### 1. Log in
 
 ```bash
-uv run neurips-auth
+uv run slideslive-auth
 # or: uv run python auth.py
 ```
 
@@ -56,7 +63,7 @@ This opens a browser window. Log in manually; cookies are saved to `cookies.json
 ### 2. Capture a session
 
 ```bash
-uv run neurips-capture https://neurips.cc/virtual/2025/poster/12345
+uv run slideslive-capture https://neurips.cc/virtual/2025/poster/12345
 # or: uv run python capture.py https://neurips.cc/virtual/2025/poster/12345
 ```
 
@@ -76,7 +83,7 @@ uv run neurips-capture https://neurips.cc/virtual/2025/poster/12345
 ### Batch multiple sessions
 
 ```bash
-uv run neurips-capture <url1> <url2> <url3>
+uv run slideslive-capture <url1> <url2> <url3>
 ```
 
 ---
@@ -84,9 +91,9 @@ uv run neurips-capture <url1> <url2> <url3>
 ## Re-running individual steps
 
 ```bash
-uv run neurips-auth                                      # log in / refresh cookies
-uv run neurips-transcribe output/session-slug/           # re-transcribe with a different model
-uv run neurips-summarize output/session-slug/ --force    # regenerate notes
+uv run slideslive-auth                                      # log in / refresh cookies
+uv run slideslive-transcribe output/session-slug/           # re-transcribe with a different model
+uv run slideslive-summarize output/session-slug/ --force    # regenerate notes
 ```
 
 ---
@@ -157,7 +164,7 @@ Re-running `capture.py` on the same URL is **idempotent** — existing files are
 
 **`ffmpeg not found`** — Install ffmpeg (see Prerequisites). The tool requires it for audio extraction.
 
-**`cookies.json` expired / login required** — Run `neurips-auth` to refresh your session cookies.
+**`cookies.json` expired / login required** — Run `slideslive-auth` to refresh your session cookies.
 
 **Whisper is too slow** — Use a smaller model: `--whisper-model base` or `--whisper-model tiny`.
 
@@ -169,7 +176,7 @@ Re-running `capture.py` on the same URL is **idempotent** — existing files are
 
 ## Limitations
 
-- A **NeurIPS account** is required for sessions behind the virtual conference paywall.
+- A **conference account** is required for sessions behind the virtual conference paywall.
 - Slides depend on **SlidesLive** — sessions using other players may not have downloadable slide images.
 - **Whisper accuracy** varies by audio quality, speaker accent, and model size. Technical terminology may require a larger model.
 
