@@ -295,8 +295,36 @@ def download_slides_playwright(
             browser.close()
             return 0
 
-        # Wait for the first slide image to appear inside the iframe
         slide_img_sel = "[data-slp-target='slidesElement'] img"
+        player_root_sel = "[data-slp-target='rootElement']"
+
+        # Wait for the player to finish loading (slp--liveStarted appears when ready).
+        # If it takes too long, click the player to nudge initialization.
+        for attempt in range(3):
+            try:
+                frame.wait_for_function(
+                    "() => document.querySelector('[data-slp-target=\"rootElement\"]')"
+                    "       ?.classList.contains('slp--liveStarted') ?? false",
+                    timeout=20_000,
+                )
+                break  # player is ready
+            except PWTimeout:
+                if attempt == 0:
+                    # Nudge: click center of the player
+                    try:
+                        frame.locator(player_root_sel).click(timeout=3_000)
+                    except Exception:
+                        pass
+                elif attempt == 1:
+                    # Nudge: try the play button
+                    try:
+                        frame.locator("[data-slp-target='play']").click(timeout=3_000)
+                    except Exception:
+                        pass
+        else:
+            print("  Warning: player did not reach liveStarted state; trying anyway...")
+
+        # Wait for the first slide image to appear inside the iframe
         try:
             frame.wait_for_selector(slide_img_sel, timeout=30_000)
         except PWTimeout:
@@ -313,8 +341,6 @@ def download_slides_playwright(
         print(f"  Player reports {total} slides." if total else "  Could not read slide count.")
 
         # Click through all slides via keyboard shortcut (Shift+→)
-        player_root_sel = "[data-slp-target='rootElement']"
-
         # Initial focus
         frame.locator(player_root_sel).focus()
 
