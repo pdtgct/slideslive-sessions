@@ -109,7 +109,7 @@ def download_video(session_url: str, output_dir: Path, cookies_path: Path) -> bo
 # ---------------------------------------------------------------------------
 
 def write_metadata(output_dir: Path, url: str, slug: str, slides_meta: dict) -> None:
-    """Write metadata.json for the session."""
+    """Write metadata.json and page.md for the session."""
     metadata_path = output_dir / "metadata.json"
     if metadata_path.exists():
         # Merge with existing
@@ -118,6 +118,7 @@ def write_metadata(output_dir: Path, url: str, slug: str, slides_meta: dict) -> 
         existing.setdefault("url", url)
         existing.setdefault("slug", slug)
         metadata_path.write_text(json.dumps(existing, indent=2))
+        metadata = existing
     else:
         metadata = {
             "url": url,
@@ -127,6 +128,16 @@ def write_metadata(output_dir: Path, url: str, slug: str, slides_meta: dict) -> 
         }
         metadata_path.write_text(json.dumps(metadata, indent=2))
     print(f"  metadata.json written.")
+
+    page_md_path = output_dir / "page.md"
+    if not page_md_path.exists():
+        title = metadata.get("title") or slug
+        abstract = metadata.get("abstract", "")
+        lines = [f"# {title}", "", f"**URL:** {url}", ""]
+        if abstract:
+            lines += ["## Abstract", "", abstract, ""]
+        page_md_path.write_text("\n".join(lines))
+        print(f"  page.md written.")
 
 
 # ---------------------------------------------------------------------------
@@ -141,6 +152,8 @@ def capture_session(
     whisper_model: str | None = None,
     skip_video: bool = False,
     skip_notes: bool = False,
+    recreate_notes: bool = False,
+    clean_media: bool = False,
 ) -> None:
     slug = url_to_slug(url)
     output_dir = output_root / slug
@@ -197,13 +210,21 @@ def capture_session(
     # Step 5: Generate notes
     transcript_path = output_dir / "transcript.txt"
     if not skip_notes and transcript_path.exists():
-        print("\n[4/4] Generating notes with Claude...")
+        print("\n[4/4] Generating notes...")
         import summarize as summarize_module
-        summarize_module.generate_notes(output_dir)
+        summarize_module.generate_notes(output_dir, force=recreate_notes)
     elif skip_notes:
         print("\n[4/4] Notes generation skipped (--no-notes).")
     else:
         print("\n[4/4] No transcript.txt — skipping notes generation.")
+
+    # Clean media if requested
+    if clean_media:
+        for fname in ("video.mp4", "audio.mp3"):
+            fpath = output_dir / fname
+            if fpath.exists():
+                fpath.unlink()
+                print(f"  Removed {fname}.")
 
     print(f"\nDone! Output in: {output_dir}")
 
@@ -258,7 +279,17 @@ First run:
     parser.add_argument(
         "--no-notes",
         action="store_true",
-        help="Skip Claude notes generation",
+        help="Skip notes generation",
+    )
+    parser.add_argument(
+        "--recreate-notes",
+        action="store_true",
+        help="Regenerate notes.md even if it already exists",
+    )
+    parser.add_argument(
+        "--clean-media",
+        action="store_true",
+        help="Delete video.mp4 and audio.mp3 after successful capture",
     )
 
     args = parser.parse_args()
@@ -280,6 +311,8 @@ First run:
                 whisper_model=args.whisper_model,
                 skip_video=args.no_video,
                 skip_notes=args.no_notes,
+                recreate_notes=args.recreate_notes,
+                clean_media=args.clean_media,
             )
         except KeyboardInterrupt:
             print("\nInterrupted.")

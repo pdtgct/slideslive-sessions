@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-`neurips-sessions` — a Python CLI tool for capturing NeurIPS session data: slides (JPEG), video (MP4), audio transcripts (Whisper), and AI-generated notes (Claude API).
+`slideslive-sessions` — a Python CLI tool for capturing ML conference session data (NeurIPS, ICLR, ICML, and others using SlidesLive): slides (JPEG), video (MP4), audio transcripts (Whisper), and AI-generated notes (Claude API).
 
 ## Setup
 
@@ -85,6 +85,10 @@ output/{session-slug}/
   transcript.txt      # Whisper transcription
   notes.md            # Claude-generated structured notes
 ```
+
+## Debugging / Bug Fixes
+
+After making bug fixes, re-read the surrounding logic to check for related issues (e.g., falsy value handling, off-by-one errors) before presenting the fix as complete.
 
 ## Key Technical Notes
 

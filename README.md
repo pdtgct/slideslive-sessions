@@ -1,121 +1,193 @@
-# neurips-sessions
+# slideslive-sessions
 
-Capture slides, video, and AI-generated notes from NeurIPS conference sessions.
+![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)
+![License: MIT](https://img.shields.io/badge/license-MIT-green)
 
-## How it works
+A CLI tool for capturing ML conference session data — slides (JPEG), video (MP4), audio transcripts (Whisper), and AI-generated structured notes — into a local, searchable archive.
 
-For each session URL, the tool:
-1. Downloads slide JPEGs from the SlidesLive CDN
-2. Downloads the session video via yt-dlp
-3. Extracts audio and transcribes it with Whisper
-4. Generates structured Markdown notes via the Claude API
+Built for ML researchers who want to review talks at their own pace without re-watching hours of video.
 
-All steps are idempotent — re-running the same URL skips already-downloaded files.
+## Conference compatibility
+
+Tested with **[NeurIPS](https://neurips.cc/Conferences/2025/Dates)**. The tool targets the SlidesLive player, so it may also work with other conferences that use SlidesLive for their virtual presentation platform — but these have **not been tested**:
+
+- [ICLR](https://iclr.cc/templates/VirtualConferenceAuthorInstructions)
+- [ICML](https://icml.cc/Conferences/2026/CallForWorkshops)
+
+---
 
 ## Prerequisites
 
-**System dependencies (install before anything else):**
+- **Python 3.11+**
+- **ffmpeg** (required for audio extraction)
+  - macOS: `brew install ffmpeg`
+  - Ubuntu/Debian: `sudo apt install ffmpeg`
+- A **conference account** (for sessions behind login)
+- An **API key** for your chosen LLM provider (e.g. `ANTHROPIC_API_KEY`)
 
-```bash
-# macOS
-brew install ffmpeg
-
-# Ubuntu/Debian
-sudo apt install ffmpeg
-```
-
-ffmpeg is required by yt-dlp to mux HLS video/audio streams, and by Whisper for audio extraction.
-
-**Python 3.11+**
+---
 
 ## Setup
 
 ```bash
-# 1. Clone and create virtualenv
-git clone https://github.com/pdtgct/neurips-sessions
-cd neurips-sessions
-python -m venv .venv
-source .venv/bin/activate
+# Clone the repo
+git clone https://github.com/pdtgct/slideslive-sessions.git
+cd slideslive-sessions
 
-# 2. Install Python dependencies
-pip install -e .
+# Install the package and dependencies (uv creates the venv automatically)
+uv sync
 
-# 3. Install Playwright browser
-playwright install chromium
+# Install the Playwright Chromium browser
+uv run playwright install chromium
 
-# 4. Configure API key
+# Configure environment variables
 cp .env.example .env
-# Edit .env and set: ANTHROPIC_API_KEY=sk-ant-...
+# Edit .env and set NOTES_MODEL and the corresponding API key
 ```
+
+> Don't have `uv`? Install it with `curl -LsSf https://astral.sh/uv/install.sh | sh` or see the [uv docs](https://docs.astral.sh/uv/getting-started/installation/). Alternatively, use `python -m venv .venv && source .venv/bin/activate && pip install -e .`
+
+---
 
 ## Usage
 
-### Step 1: Log in to neurips.cc
+### 1. Log in
 
 ```bash
-python auth.py
+uv run slideslive-auth
+# or: uv run python auth.py
 ```
 
-Opens a browser window. Complete the SSO/Google login, then the window closes and
-`cookies.json` is saved automatically.
+This opens a browser window. Log in manually; cookies are saved to `cookies.json`.
 
-### Step 2: Capture a session
+### 2. Capture a session
 
 ```bash
-python capture.py https://neurips.cc/virtual/2025/poster/12345
+uv run slideslive-capture https://neurips.cc/virtual/2025/poster/12345
+# or: uv run python capture.py https://neurips.cc/virtual/2025/poster/12345
 ```
 
-Output is written to `./output/{session-slug}/`.
+### All flags
 
-### Common options
+| Flag | Description |
+|---|---|
+| `--no-video` | Skip video download; capture slides and notes only |
+| `--no-notes` | Skip notes generation |
+| `--recreate-notes` | Regenerate `notes.md` even if it already exists |
+| `--clean-media` | Delete `video.mp4` and `audio.mp3` after capture to save disk space |
+| `--whisper-model <size>` | Whisper model size: `tiny`, `base`, `small`, `medium`, `large` (default: `small`) |
+| `--cookies <path>` | Path to cookies file (default: `cookies.json`) |
+| `--output-dir <path>` | Root output directory (default: `$OUTPUT_DIR` or `./output`) |
+| `--presentation-id <id>` | SlidesLive presentation ID, if auto-detection fails |
+
+### Batch multiple sessions
 
 ```bash
-# Capture multiple sessions
-python capture.py <url1> <url2> <url3>
-
-# Skip video download (slides + notes only, no ffmpeg needed)
-python capture.py --no-video <url>
-
-# Skip Claude notes generation
-python capture.py --no-notes <url>
-
-# Use a faster/smaller Whisper model (tiny < base < small < medium < large)
-python capture.py --whisper-model base <url>
-
-# Custom output directory
-python capture.py --output-dir ~/Downloads/neurips <url>
-
-# If auto-detection of the SlidesLive ID fails
-python capture.py --presentation-id 39055688 <url>
+uv run slideslive-capture <url1> <url2> <url3>
 ```
 
-## Output structure
+---
 
+## Re-running individual steps
+
+```bash
+uv run slideslive-auth                                      # log in / refresh cookies
+uv run slideslive-transcribe output/session-slug/           # re-transcribe with a different model
+uv run slideslive-summarize output/session-slug/ --force    # regenerate notes
 ```
-output/
-  {session-slug}/
-    metadata.json     # title, URL, presentation ID, slide count
-    video.mp4
-    audio.mp3
-    slides/
-      001.jpg, 002.jpg, ...
-    sync.xml          # slide-to-timecode mapping (if available)
-    transcript.txt    # Whisper transcription
-    notes.md          # Claude-generated structured notes
-```
+
+---
 
 ## Configuration
 
+All settings can be placed in a `.env` file in the project root.
+
 | Variable | Default | Purpose |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | required | Claude API for notes |
+| `NOTES_MODEL` | `anthropic/claude-opus-4-6` | litellm model string for notes generation |
+| `NOTES_API_BASE` | _(unset)_ | Custom API base URL (e.g. for Ollama or local endpoints) |
+| `ANTHROPIC_API_KEY` | _(required for Anthropic)_ | Anthropic API key |
+| `OPENAI_API_KEY` | _(required for OpenAI)_ | OpenAI API key |
 | `WHISPER_MODEL` | `small` | Whisper model size |
 | `OUTPUT_DIR` | `./output` | Root output directory |
 
-## Individual steps
+---
 
-```bash
-python auth.py                         # login only
-python transcribe.py output/session-X/ --model base
-python summarize.py output/session-X/
+## Supported LLM Providers
+
+Notes generation uses [litellm](https://docs.litellm.ai/docs/providers), so any supported provider works.
+
+**Anthropic (default)**
+```env
+NOTES_MODEL=anthropic/claude-opus-4-6
+ANTHROPIC_API_KEY=sk-ant-...
 ```
+
+**OpenAI**
+```env
+NOTES_MODEL=openai/gpt-4o
+OPENAI_API_KEY=sk-...
+```
+
+**Ollama (local)**
+```env
+NOTES_MODEL=ollama/llama3
+NOTES_API_BASE=http://localhost:11434
+```
+
+See the [litellm provider docs](https://docs.litellm.ai/docs/providers) for the full list.
+
+---
+
+## Output structure
+
+Each session is saved under `output/{session-slug}/`:
+
+```
+output/{session-slug}/
+  metadata.json       # title, URL, presentation ID, slide count
+  page.md             # human-readable session summary page
+  video.mp4           # downloaded video (omitted with --clean-media)
+  audio.mp3           # extracted audio (omitted with --clean-media)
+  slides/
+    001.jpg, 002.jpg, ...
+  sync.xml            # slide-to-timecode mapping
+  transcript.txt      # Whisper transcription
+  notes.md            # AI-generated structured notes
+```
+
+Re-running `capture.py` on the same URL is **idempotent** — existing files are skipped unless `--recreate-notes` is passed.
+
+---
+
+## Troubleshooting
+
+**`ffmpeg not found`** — Install ffmpeg (see Prerequisites). The tool requires it for audio extraction.
+
+**`cookies.json` expired / login required** — Run `slideslive-auth` to refresh your session cookies.
+
+**Whisper is too slow** — Use a smaller model: `--whisper-model base` or `--whisper-model tiny`.
+
+**Notes generation returned empty output** — Check that your API key is set and the model string in `NOTES_MODEL` is valid for your provider.
+
+**SlidesLive ID not detected** — Pass `--presentation-id <id>` manually. The ID appears in the SlidesLive embed URL on the session page.
+
+---
+
+## Limitations
+
+- A **conference account** is required for sessions behind the virtual conference paywall.
+- Slides depend on **SlidesLive** — sessions using other players may not have downloadable slide images.
+- **Whisper accuracy** varies by audio quality, speaker accent, and model size. Technical terminology may require a larger model.
+
+---
+
+## Contributing
+
+Contributions welcome. Open an issue to discuss a change before sending a PR. Please keep PRs focused — one concern per PR makes review easier.
+
+---
+
+## License
+
+MIT
