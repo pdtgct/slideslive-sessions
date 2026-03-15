@@ -1,9 +1,10 @@
 """
-slides.py — Download slide JPEGs and sync XML for a SlidesLive presentation.
+slides.py — Download slide images and sync XML for a SlidesLive presentation.
 
 Extracts the SlidesLive presentation ID from a neurips.cc session page,
-then uses myslideslive (or direct CDN fallback) to enumerate and download
-all slide images, plus the slide-to-timecode sync XML.
+fetches the player's slides_video_service_data API to get the actual slide
+URLs (hashed filenames on slideslive-slides.b-cdn.net), then downloads them.
+Falls back to myslideslive or legacy CDN enumeration if the API fails.
 """
 
 import re
@@ -11,10 +12,13 @@ from pathlib import Path
 
 import httpx
 
-# SlidesLive CDN patterns
-SLIDES_CDN_BASE = "https://d3h9ln6psucegz.cloudfront.net"
-SYNC_XML_URL = "{cdn}/{presentation_id}/slides/slides.xml"
-SLIDE_URL = "{cdn}/{presentation_id}/slides/thumbnails/slide_{n:04d}.jpg"
+# Legacy CDN (used as last-resort fallback only — most presentations 403 now)
+_LEGACY_CDN_BASE = "https://d3h9ln6psucegz.cloudfront.net"
+_LEGACY_SYNC_XML_URL = "{cdn}/{presentation_id}/slides/slides.xml"
+_LEGACY_SLIDE_URL = "{cdn}/{presentation_id}/slides/thumbnails/slide_{n:04d}.jpg"
+
+# SlidesLive embed base
+SLIDESLIVE_EMBED_URL = "https://slideslive.com/embed/presentation/{presentation_id}"
 
 # Regex patterns to extract SlidesLive presentation ID from neurips.cc page HTML
 PRESENTATION_ID_PATTERNS = [
@@ -121,6 +125,324 @@ def extract_page_info(html: str) -> dict:
     return {"title": title, "abstract": abstract}
 
 
+def fetch_embed_html(presentation_id: str, session_url: str, cookies: list[dict]) -> str:
+    """
+    Fetch the SlidesLive embed page HTML.
+
+    This page contains data-player-token and data-slides-video-service-data-url
+    as server-rendered attributes on the player div.
+    """
+    embed_url = SLIDESLIVE_EMBED_URL.format(presentation_id=presentation_id)
+    cookie_header = "; ".join(f"{c['name']}={c['value']}" for c in cookies)
+    headers = {
+        "Referer": session_url,
+        "Origin": "https://neurips.cc",
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        ),
+    }
+    if cookie_header:
+        headers["Cookie"] = cookie_header
+    with httpx.Client(follow_redirects=True, timeout=30) as client:
+        response = client.get(embed_url, headers=headers)
+        response.raise_for_status()
+        return response.text
+
+
+def extract_player_data(html: str) -> dict:
+    """Extract player token and service data URL from SlidesLive player HTML."""
+    token_match = re.search(r'data-player-token="([^"]+)"', html)
+    url_match = re.search(r'data-slides-video-service-data-url="([^"]+)"', html)
+    return {
+        "player_token": token_match.group(1) if token_match else None,
+        "service_data_url": url_match.group(1) if url_match else None,
+    }
+
+
+def fetch_slides_service_data(service_data_url: str, player_token: str) -> dict | None:
+    """
+    Fetch the slide list from the SlidesLive slides_video_service_data endpoint.
+
+    Returns the parsed JSON dict, or None on failure.
+    """
+    headers = {
+        "Authorization": f"Bearer {player_token}",
+        "Accept": "application/json",
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        ),
+    }
+    with httpx.Client(timeout=30) as client:
+        try:
+            response = client.get(service_data_url, headers=headers)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            print(f"  Could not fetch service data: {e}")
+            return None
+
+
+def download_slides_from_service_data(service_data: dict, slides_dir: Path) -> int:
+    """
+    Download slides whose URLs are listed in the service data JSON.
+
+    SlidesLive returns URLs like:
+      https://slideslive-slides.b-cdn.net/{id}/slides/original/{hash}.png
+    The JSON structure may vary; we try several known key shapes.
+    """
+    # Normalise: collect a flat list of URL strings
+    raw: list = []
+    for key in ("slides", "slide_urls", "images"):
+        val = service_data.get(key)
+        if isinstance(val, list) and val:
+            raw = val
+            break
+
+    if not raw:
+        print(f"  service data keys: {list(service_data.keys())} — no slide list found")
+        return 0
+
+    slides_dir.mkdir(parents=True, exist_ok=True)
+    downloaded = 0
+
+    with httpx.Client(timeout=60, follow_redirects=True) as client:
+        for i, item in enumerate(raw, 1):
+            if isinstance(item, str):
+                url = item
+            elif isinstance(item, dict):
+                url = item.get("url") or item.get("image") or item.get("src") or ""
+            else:
+                continue
+
+            if not url:
+                continue
+
+            # Keep the original extension (usually .png)
+            ext = url.split("?")[0].rsplit(".", 1)[-1] if "." in url.split("?")[0] else "png"
+            dest = slides_dir / f"{i:03d}.{ext}"
+
+            if dest.exists():
+                downloaded += 1
+                continue
+
+            try:
+                response = client.get(url)
+                response.raise_for_status()
+                dest.write_bytes(response.content)
+                downloaded += 1
+                print(f"  Slide {i:03d} ({len(response.content) // 1024}KB)    ", end="\r")
+            except httpx.HTTPStatusError as e:
+                print(f"\n  Warning: slide {i} failed ({e.response.status_code}): {url}")
+
+    if downloaded:
+        print(f"  Downloaded {downloaded} slides via service data.          ")
+    return downloaded
+
+
+def download_slides_playwright(
+    session_url: str,
+    slides_dir: Path,
+    cookies: list[dict],
+) -> int:
+    """
+    Use a headless browser to click through all slides in the SlidesLive player
+    embedded in the NeurIPS session page, collect each slide's image URL, then
+    download them and write slides/slides.pdf.
+
+    Returns the number of slides downloaded.
+    """
+    from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
+
+    print("  Launching headless browser to collect slide URLs...")
+
+    slide_urls: list[str] = []
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(
+            user_agent=(
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            )
+        )
+
+        # Load saved cookies
+        if cookies:
+            context.add_cookies(cookies)
+
+        page = context.new_page()
+        page.goto(session_url, wait_until="load", timeout=60_000)
+
+        # SlidesLive player is in an iframe on the NeurIPS page
+        iframe_sel = "iframe[src*='slideslive.com']"
+        try:
+            page.wait_for_selector(iframe_sel, timeout=20_000)
+        except PWTimeout:
+            print("  Timed out waiting for SlidesLive iframe.")
+            browser.close()
+            return 0
+
+        # Get the frame object
+        iframe_element = page.query_selector(iframe_sel)
+        frame = iframe_element.content_frame()
+        if frame is None:
+            print("  Could not access iframe content.")
+            browser.close()
+            return 0
+
+        # Wait for the first slide image to appear inside the iframe
+        slide_img_sel = "[data-slp-target='slidesElement'] img"
+        try:
+            frame.wait_for_selector(slide_img_sel, timeout=30_000)
+        except PWTimeout:
+            print("  Timed out waiting for first slide image in iframe.")
+            browser.close()
+            return 0
+
+        # Read total slide count
+        try:
+            count_text = frame.inner_text("[data-slp-target='slideCount']")
+            total = int(count_text.strip())
+        except Exception:
+            total = None
+        print(f"  Player reports {total} slides." if total else "  Could not read slide count.")
+
+        # Click through all slides via keyboard shortcut (Shift+→)
+        player_root_sel = "[data-slp-target='rootElement']"
+
+        # Initial focus
+        frame.locator(player_root_sel).focus()
+
+        # Read slide count now that the player is active
+        if total is None:
+            try:
+                count_text = frame.inner_text("[data-slp-target='slideCount']")
+                total = int(count_text.strip())
+                print(f"  Player reports {total} slides.")
+            except Exception:
+                pass
+
+        seen: set[str] = set()
+
+        for i in range(total or 500):
+            # Get current slide src
+            try:
+                src = frame.get_attribute(slide_img_sel, "src") or ""
+            except Exception:
+                break
+
+            # Strip query params for dedup, but keep full URL for download
+            src_clean = src.split("?")[0]
+            if src_clean and src_clean not in seen:
+                seen.add(src_clean)
+                slide_urls.append(src)
+
+            print(f"  Collecting slide {i + 1}/{total or '?'}    ", end="\r")
+
+            # Stop if we've reached the total
+            if total and len(seen) >= total:
+                break
+
+            # Shift+→ is the SlidesLive keyboard shortcut for next slide
+            page.keyboard.press("Shift+ArrowRight")
+
+            # Wait for slide to advance: src changes OR img disappears (video slide)
+            try:
+                frame.wait_for_function(
+                    """([sel, prev]) => {
+                        const img = document.querySelector(sel);
+                        return !img || img.src !== prev;
+                    }""",
+                    arg=[slide_img_sel, src],
+                    timeout=5_000,
+                )
+            except PWTimeout:
+                # Neither happened — we're at the last slide
+                break
+
+            # If img disappeared (video-type slide), keep pressing → to skip past it
+            for _ in range(50):
+                if frame.evaluate(f"document.querySelector(\"{slide_img_sel}\") !== null"):
+                    break  # img reappeared — back to an image slide
+                page.keyboard.press("Shift+ArrowRight")
+                page.wait_for_timeout(200)
+            else:
+                # Couldn't get back to an image slide — end of navigable content
+                break
+
+        browser.close()
+
+    print(f"\n  Collected {len(slide_urls)} unique slide URLs.")
+
+    if not slide_urls:
+        return 0
+
+    # Download images
+    slides_dir.mkdir(parents=True, exist_ok=True)
+    downloaded_paths: list[Path] = []
+
+    with httpx.Client(timeout=60, follow_redirects=True) as client:
+        for i, url in enumerate(slide_urls, 1):
+            ext = url.split("?")[0].rsplit(".", 1)[-1] if "." in url.split("?")[0] else "png"
+            dest = slides_dir / f"{i:03d}.{ext}"
+            if dest.exists():
+                downloaded_paths.append(dest)
+                continue
+            try:
+                response = client.get(url)
+                response.raise_for_status()
+                dest.write_bytes(response.content)
+                downloaded_paths.append(dest)
+                print(f"  Downloading slide {i}/{len(slide_urls)}    ", end="\r")
+            except httpx.HTTPStatusError as e:
+                print(f"\n  Warning: slide {i} failed ({e.response.status_code})")
+
+    print(f"  Downloaded {len(downloaded_paths)} slides.              ")
+
+    # Build PDF
+    if downloaded_paths:
+        _build_pdf(downloaded_paths, slides_dir)
+
+    return len(downloaded_paths)
+
+
+def _build_pdf(image_paths: list[Path], slides_dir: Path) -> None:
+    """Combine downloaded slide images into a single slides.pdf."""
+    try:
+        from PIL import Image
+    except ImportError:
+        print("  Pillow not installed — skipping PDF generation.")
+        return
+
+    pdf_path = slides_dir.parent / "slides.pdf"
+    if pdf_path.exists():
+        print("  slides.pdf already exists, skipping.")
+        return
+
+    images = []
+    for p in image_paths:
+        try:
+            img = Image.open(p).convert("RGB")
+            images.append(img)
+        except Exception as e:
+            print(f"  Warning: could not open {p.name}: {e}")
+
+    if not images:
+        return
+
+    images[0].save(
+        pdf_path,
+        save_all=True,
+        append_images=images[1:],
+    )
+    print(f"  slides.pdf written ({len(images)} pages).")
+
+
 def fetch_session_page(url: str, cookies: list[dict]) -> str:
     """Fetch session page HTML using saved auth cookies."""
     cookie_header = "; ".join(f"{c['name']}={c['value']}" for c in cookies)
@@ -140,7 +462,7 @@ def fetch_session_page(url: str, cookies: list[dict]) -> str:
 
 def download_sync_xml(presentation_id: str, output_dir: Path) -> Path | None:
     """Download the slide timing sync XML file."""
-    xml_url = SYNC_XML_URL.format(cdn=SLIDES_CDN_BASE, presentation_id=presentation_id)
+    xml_url = _LEGACY_SYNC_XML_URL.format(cdn=_LEGACY_CDN_BASE, presentation_id=presentation_id)
     xml_path = output_dir / "sync.xml"
 
     if xml_path.exists():
@@ -177,15 +499,15 @@ def download_slides_myslideslive(presentation_id: str, slides_dir: Path) -> int:
 
 
 def download_slides_cdn(presentation_id: str, slides_dir: Path) -> int:
-    """Download slides directly from CloudFront CDN (fallback)."""
+    """Download slides from the legacy CloudFront CDN (last-resort fallback)."""
     slides_dir.mkdir(parents=True, exist_ok=True)
     downloaded = 0
 
     with httpx.Client(timeout=30) as client:
         n = 1
         while True:
-            slide_url = SLIDE_URL.format(
-                cdn=SLIDES_CDN_BASE, presentation_id=presentation_id, n=n
+            slide_url = _LEGACY_SLIDE_URL.format(
+                cdn=_LEGACY_CDN_BASE, presentation_id=presentation_id, n=n
             )
             dest = slides_dir / f"{n:03d}.jpg"
 
@@ -242,16 +564,31 @@ def download(
 
     print(f"Presentation ID: {presentation_id}")
 
-    # Download sync XML
+    # Download sync XML (best-effort; 403 on newer presentations is normal)
     download_sync_xml(presentation_id, output_dir)
 
     # Download slides
-    existing_slides = list(slides_dir.glob("*.jpg")) if slides_dir.exists() else []
+    existing_slides = (
+        list(slides_dir.glob("*.jpg")) + list(slides_dir.glob("*.png"))
+        if slides_dir.exists() else []
+    )
     if existing_slides:
         slide_count = len(existing_slides)
         print(f"  {slide_count} slides already downloaded, skipping.")
     else:
-        slide_count = download_slides_myslideslive(presentation_id, slides_dir)
+        slide_count = 0
+
+        # Primary: Playwright — click through the live player to collect slide URLs
+        try:
+            slide_count = download_slides_playwright(session_url, slides_dir, cookies)
+        except Exception as e:
+            print(f"  Playwright approach failed: {e}")
+
+        # Fallback 1: myslideslive library
+        if not slide_count:
+            slide_count = download_slides_myslideslive(presentation_id, slides_dir)
+
+        # Fallback 2: legacy CDN enumeration
         if not slide_count:
             slide_count = download_slides_cdn(presentation_id, slides_dir)
 
