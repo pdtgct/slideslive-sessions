@@ -23,7 +23,7 @@ Tested with **[NeurIPS](https://neurips.cc/Conferences/2025/Dates)**. The tool t
   - macOS: `brew install ffmpeg`
   - Ubuntu/Debian: `sudo apt install ffmpeg`
 - A **conference account** (for sessions behind login)
-- An **API key** for your chosen LLM provider (e.g. `ANTHROPIC_API_KEY`)
+- LLM through [LiteLLM](https://github.com/BerriAI/litellm): an **API key** for your chosen LLM provider (e.g. `ANTHROPIC_API_KEY`) or local LLM.
 
 ---
 
