@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 
 DEFAULT_NOTES_MODEL = "anthropic/claude-opus-4-6"
 
-SYSTEM_PROMPT = """You are an expert ML researcher creating structured notes from NeurIPS conference sessions.
+SYSTEM_PROMPT = """You are an expert ML researcher creating structured notes from conference sessions.
 
 Your notes should be precise, technical, and useful for a researcher who wants to understand the key contributions, mechanisms, assumptions, and limitations without watching the full session.
 
@@ -48,15 +48,16 @@ Guidelines:
 
 When the talk introduces a sequence of models, abstractions, or theoretical reductions, preserve that structure explicitly in the notes."""
 
-NOTES_PROMPT_TEMPLATE = """Please create structured notes for the following NeurIPS session.
+NOTES_PROMPT_TEMPLATE = """Please create structured notes for the following session.
 
 Session metadata:
 - Session Title: {title}
 - Session URL: {url}
 - Slide Count: {slide_count}
 
-Transcript:
+<transcript>
 {transcript}
+</transcript>
 
 Instructions for this session:
 - Use the transcript to recover the conceptual organization of the talk as it would be understood from the slides.

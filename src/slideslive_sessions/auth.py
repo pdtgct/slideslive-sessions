@@ -1,8 +1,8 @@
 """
-auth.py — Browser-based login for neurips.cc via Playwright.
+auth.py — Browser-based login for conference sites via Playwright.
 
 Usage:
-    slideslive-auth [--cookies cookies.json]
+    slideslive-auth [--cookies cookies.json] [--url LOGIN_URL]
 
 Opens a headed browser window so the user can complete SSO/Google login
 manually, then saves the resulting cookies to cookies.json for reuse.
@@ -12,15 +12,16 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
 
 from playwright.sync_api import sync_playwright
 
 LOGIN_URL = "https://neurips.cc/accounts/login"
-LOGGED_IN_INDICATOR = "https://neurips.cc/virtual"  # URL prefix after successful login
 
 
-def login(cookies_path: Path) -> None:
-    print(f"Opening browser for neurips.cc login...")
+def login(cookies_path: Path, login_url: str = LOGIN_URL) -> None:
+    domain = urlparse(login_url).netloc
+    print(f"Opening browser for {domain} login...")
     print("Complete the login in the browser window, then close it (or it will auto-close).")
 
     with sync_playwright() as p:
@@ -28,12 +29,12 @@ def login(cookies_path: Path) -> None:
         context = browser.new_context()
         page = context.new_page()
 
-        page.goto(LOGIN_URL)
+        page.goto(login_url)
 
         # Wait for the user to complete login: detect navigation away from login page
         try:
             page.wait_for_url(
-                lambda url: "login" not in url and "neurips.cc" in url,
+                lambda url: "login" not in url and domain in url,
                 timeout=300_000,  # 5 minutes
             )
         except Exception:
@@ -81,14 +82,19 @@ def cookies_as_netscape(cookies: list[dict], path: Path) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Log in to neurips.cc and save cookies.")
+    parser = argparse.ArgumentParser(description="Log in to a conference site and save cookies.")
     parser.add_argument(
         "--cookies",
         default="cookies.json",
         help="Path to save cookies (default: cookies.json)",
     )
+    parser.add_argument(
+        "--url",
+        default=LOGIN_URL,
+        help="Conference login URL (default: https://neurips.cc/accounts/login)",
+    )
     args = parser.parse_args()
-    login(Path(args.cookies))
+    login(Path(args.cookies), login_url=args.url)
 
 
 if __name__ == "__main__":
