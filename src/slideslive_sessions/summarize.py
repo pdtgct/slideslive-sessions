@@ -7,8 +7,10 @@ Usage:
 Reads transcript.txt and metadata.json; writes notes.md.
 
 Model selection via env vars:
-  NOTES_MODEL    — litellm model string (default: anthropic/claude-opus-4-6)
-  NOTES_API_BASE — optional custom API base URL (e.g. for Ollama or local endpoints)
+  NOTES_MODEL              — litellm model string (default: anthropic/claude-opus-4-6)
+  NOTES_API_BASE           — optional custom API base URL (e.g. for Ollama or local endpoints)
+  NOTES_REASONING_PARAM    — optional extra_body chat_template_kwargs key (e.g. enable_thinking)
+  NOTES_REASONING_VALUE    — value for NOTES_REASONING_PARAM; "true"/"false" converted to bool
 """
 
 import argparse
@@ -93,6 +95,23 @@ Important:
 """
 
 
+def _coerce_reasoning_value(value: str | None) -> bool | str | None:
+    """Convert common boolean-like strings, otherwise preserve non-empty strings."""
+    if value is None:
+        return None
+
+    normalized = value.strip()
+    if not normalized:
+        return None
+
+    lowered = normalized.lower()
+    if lowered in {"1", "true", "t", "yes"}:
+        return True
+    if lowered in {"0", "false", "f", "no"}:
+        return False
+    return normalized
+
+
 def generate_notes(output_dir: Path, force: bool = False) -> str:
     """Generate structured notes from transcript and metadata using litellm."""
     transcript_path = output_dir / "transcript.txt"
@@ -130,6 +149,8 @@ def generate_notes(output_dir: Path, force: bool = False) -> str:
 
     notes_model = os.environ.get("NOTES_MODEL", DEFAULT_NOTES_MODEL)
     notes_api_base = os.environ.get("NOTES_API_BASE")
+    notes_reasoning_param = os.environ.get("NOTES_REASONING_PARAM")
+    notes_reasoning_value = _coerce_reasoning_value(os.environ.get("NOTES_REASONING_VALUE"))
     notes_text = ""
 
     kwargs = {
@@ -143,6 +164,8 @@ def generate_notes(output_dir: Path, force: bool = False) -> str:
     }
     if notes_api_base:
         kwargs["api_base"] = notes_api_base
+    if notes_reasoning_param and notes_reasoning_value is not None:
+        kwargs["extra_body"] = {"chat_template_kwargs": {notes_reasoning_param: notes_reasoning_value}}
 
     print(f"Generating notes with {notes_model} (streaming)...")
     for chunk in litellm.completion(**kwargs):
